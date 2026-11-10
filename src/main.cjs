@@ -15,7 +15,8 @@ const PANEL_HEIGHT = 650;
 const DEFAULT_MODEL = path.join(ROOT, 'DeepSeek免费公皮', 'DeepSeek', '大肥鱼.model3.json');
 const SCHEME = 'fish';
 const SHELL_STATE_FILE = path.join(LOCAL, 'userData', 'shell-state.json');
-const WINDOW_ACTIONS = new Set(['showPanel', 'hidePanel', 'setMouseThrough', 'movePet', 'setPetScale', 'quit', 'selectModel', 'selectNotesExecutable', 'getShellInfo']);
+const WINDOW_ACTIONS = new Set(['showPanel', 'hidePanel', 'setMouseThrough', 'movePet', 'setPetScale', 'quit', 'selectModel', 'selectNotesExecutable', 'getShellInfo', 'reportPetStatus', 'petReactionResult']);
+const PET_REPORT_ACTIONS = new Set(['reportPetStatus', 'petReactionResult']);
 
 protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
@@ -54,6 +55,9 @@ let shellState = {};
 let persistTimer = null;
 let moveEndTimer = null;
 const allowedWebContents = new Set();
+let petStatus = { ready: false, emotions: [], gestures: [], current: null, error: '模型正在加载' };
+let reactionRequestId = 0;
+const reactionRequests = new Map();
 
 function readShellState() {
   try {
@@ -99,6 +103,36 @@ function broadcast(channel, payload) {
   }
 }
 
+function resetPetStatus(message) {
+  petStatus = { ready: false, emotions: [], gestures: [], current: null, error: message };
+  for (const pending of reactionRequests.values()) {
+    clearTimeout(pending.timeout);
+    pending.reject(new Error(message));
+  }
+  reactionRequests.clear();
+  if (service) broadcast('fish:state', service.state());
+}
+
+function requestPetReaction(type, command) {
+  if (!petStatus.ready || !petWindow || petWindow.isDestroyed()) {
+    return Promise.reject(new Error(petStatus.error || '模型尚未就绪'));
+  }
+  const id = ++reactionRequestId;
+  return new Promise((resolve, reject) => {
+    const pending = { resolve, reject, timeout: null };
+    pending.timeout = setTimeout(() => {
+      if (reactionRequests.get(id) !== pending) return;
+      reactionRequests.delete(id);
+      if (type === 'reaction' && petWindow && !petWindow.isDestroyed()) {
+        petWindow.webContents.send('fish:pet', { type: 'cancelReaction', id });
+      }
+      reject(new Error('模型未确认动作启动，请检查模型窗口'));
+    }, 10000);
+    reactionRequests.set(id, pending);
+    petWindow.webContents.send('fish:pet', { type, id, command });
+  });
+}
+
 function addTrustedWindow(window) {
   allowedWebContents.add(window.webContents.id);
   window.webContents.once('destroyed', () => allowedWebContents.delete(window.webContents.id));
@@ -116,6 +150,7 @@ function contentType(filePath) {
   return ({
     '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.webp': 'image/webp', '.moc3': 'application/octet-stream',
     '.wav': 'audio/wav', '.mp3': 'audio/mpeg',
@@ -348,6 +383,20 @@ async function handleWindowAction(method, payload = {}) {
       return { quitting: true };
     case 'selectModel': return selectModel();
     case 'selectNotesExecutable': return selectNotesExecutable();
+    case 'reportPetStatus': {
+      petStatus = payload;
+      if (service) broadcast('fish:state', service.state());
+      return { received: true };
+    }
+    case 'petReactionResult': {
+      const pending = reactionRequests.get(payload.id);
+      if (!pending) return { received: false };
+      clearTimeout(pending.timeout);
+      reactionRequests.delete(payload.id);
+      if (payload.error) pending.reject(new Error(payload.error));
+      else pending.resolve(payload.result);
+      return { received: true };
+    }
     case 'getShellInfo': return {
       modelPath,
       modelExists: fs.existsSync(modelPath),
@@ -387,6 +436,8 @@ function createPetWindow(savedBounds) {
   });
   petWindow.setAlwaysOnTop(true, 'screen-saver');
   addTrustedWindow(petWindow);
+  petWindow.webContents.on('did-start-loading', () => resetPetStatus('模型正在加载'));
+  petWindow.webContents.on('render-process-gone', () => resetPetStatus('模型渲染进程已退出，请重新加载模型'));
   petWindow.setIgnoreMouseEvents(true, { forward: true });
   petWindow.loadURL('fish://app/pet.html');
   petWindow.on('move', schedulePersist);
@@ -470,6 +521,9 @@ function createService() {
     desktopDir: app.getPath('desktop'),
     readShortcutLink: (file) => shell.readShortcutLink(file),
     openNoteExecutable: (file) => shell.openPath(file),
+    getPetState: () => structuredClone(petStatus),
+    playPetReaction: (command) => requestPetReaction('reaction', command),
+    stopPetReaction: () => requestPetReaction('stopReaction'),
     onState: (state) => broadcast('fish:state', state),
     onChat: (event) => broadcast('fish:chat', event),
     onPet: (event) => broadcast('fish:pet', event),
@@ -488,6 +542,9 @@ function createService() {
 ipcMain.handle('fish:action', async (event, method, payload) => {
   if (!trustedSender(event)) throw new Error('拒绝来自未授权窗口的 IPC 调用');
   if (typeof method !== 'string') throw new TypeError('action 名称必须是字符串');
+  if (PET_REPORT_ACTIONS.has(method) && event.sender !== petWindow?.webContents) {
+    throw new Error('动作回执只能由模型窗口提交');
+  }
   if (WINDOW_ACTIONS.has(method)) return handleWindowAction(method, payload);
   if (!service) throw new Error('业务服务尚未初始化完成，请稍后重试。');
   return service.handle(method, payload);
@@ -530,6 +587,7 @@ app.on('before-quit', () => {
   quitting = true;
   clearTimeout(persistTimer);
   clearTimeout(moveEndTimer);
+  resetPetStatus('应用正在退出');
   writeShellState();
   service?.close?.();
 });

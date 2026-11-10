@@ -72,6 +72,7 @@
     // 双向工具标签暂存：list_tasks: '读取待办', create_task: '新建待办', update_task: '修改待办',
     // complete_task: '完成任务', start_focus: '启动专注',
     list_tasks: '读取待办', start_focus: '启动专注',
+    pet_react: '表情动作',
   };
 
   // ---------- 小工具 ----------
@@ -157,6 +158,9 @@
     const label = TOOL_LABELS[name] || name;
     if (result && typeof result === 'object' && !Array.isArray(result)) {
       if (result.error) return { fail: true, text: `${label}失败：${result.error}` };
+      if (name === 'pet_react' && result.status === 'playing') {
+        return { fail: false, text: `${label}已启动：${result.emotionLabel || result.emotion} · ${result.gestureLabel || result.gesture}` };
+      }
       if (Array.isArray(result.items)) return { fail: false, text: `${label}：共 ${result.items.length} 条待办` };
       if (typeof result.text === 'string' && result.text) return { fail: false, text: `${label}：${truncate(result.text, 60)}` };
       const json = JSON.stringify(result, (k, v) => (typeof v === 'string' && v.startsWith('data:') ? '[图片数据已省略]' : v));

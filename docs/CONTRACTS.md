@@ -1,10 +1,10 @@
 # 模块集成契约
 
-所有模块CommonJS，UI为浏览器JS。父任务负责 `src/app-service.cjs`、`src/services/note-client.cjs`、集成验收与总体文档；实现子任务按文件所有权工作，不修改其他模块。
+业务模块使用CommonJS；共享动作目录`reaction-catalog.mjs`和渲染编排`pet-reactions.mjs`使用原生ESM，UI其余脚本为浏览器JS。Node24/Electron加载共享目录时不执行DOM代码。模型与操作面板均无Node权限，集成通过受限preload。
 
 ## Electron外壳与业务服务
 
-`createAppService({dataDir,noteDataDir,desktopDir,readShortcutLink,openNoteExecutable,onState,onChat,onPet,notify,encryptSecret,decryptSecret})` 从 `src/app-service.cjs` 导出；返回 `{init(), state(), handle(method,payload), close()}`。onState发送完整可公开状态；onChat发送聊天增量事件；onPet发送 `{type:'expression'|'bubble'|'motion',name?,text?}`。notify接收 `{title,body}`。本机EXE通过注入的Electron `shell.readShortcutLink`及`shell.openPath`查找/打开。
+`createAppService({dataDir,noteDataDir,desktopDir,readShortcutLink,openNoteExecutable,getPetState,playPetReaction,stopPetReaction,onState,onChat,onPet,notify,encryptSecret,decryptSecret})` 从 `src/app-service.cjs` 导出；返回 `{init(), state(), handle(method,payload), close()}`。onState发送完整可公开状态；onChat发送聊天增量事件；onPet发送`bubble`、`expression`反馈，模型控制由main发送`reaction`({id,command})、`stopReaction`({id})或`cancelReaction`({id})。最后一种只撤销仍匹配该id的超时请求，不发送过期回执。notify接收 `{title,body}`。本机EXE通过注入的Electron `shell.readShortcutLink`及`shell.openPath`查找/打开。
 
 主进程IPC `fish:action` `(method,payload)` 白名单转交handle，窗口操作自己处理。preload暴露 `window.fish`：`action(method,payload)`、`onState(fn)`、`onChat(fn)`、`onPet(fn)`（订阅均返回取消函数）。IPC推送 `fish:state`/`fish:chat`/`fish:pet`。
 
@@ -13,6 +13,13 @@
 窗口action由main负责：`showPanel`, `hidePanel`, `setMouseThrough`({enabled?,hovered?})（仅传hovered不更改用户开关，返回{enabled,mouseThrough,ignore}）, `movePet`({dx,dy}), `setPetScale`({scale:0.5..1.5}), `quit`, `selectModel`, `selectNotesExecutable`, `getShellInfo`。getShellInfo包含petScale、bubbleHeight、petBounds；比例存入shell-state，尺寸调整保留模型底部中心并限制在屏幕可用区域内。气泡预留128px独立区域，不占模型画布。服务saveSettings可接收 `{apiBaseUrl,model,apiKey,rememberKey,workMinutes,restMinutes,noteExePath,noteDataDir}`。noteExePath留空可重新自动查找。
 
 公开state：`{settings:{apiBaseUrl,model,hasApiKey,workMinutes,restMinutes,noteExePath,noteDataDir}, notes:{connected,error,revision,items:[]}, focus:{phase,paused,remainingMs,totalMs,taskId,text,completedToday,focusMinutesToday}, chat:{messages:[{role,content}],busy,error}}`。不返回原始Key。onChat事件 `{type:'start'|'delta'|'tool'|'done'|'error',text?,name?,result?,message?}`。`sendMessage`可等待完成，期间持续发事件。notes.connected只表示本机数据可读，不证明便签进程在线。
+
+## 模型表情动作
+
+`PetReactionController({model,onState?})`提供`snapshot()`、`play(command)`、`stop()`、`showExpression(name,seconds?)`及`destroy()`。main将快照作为公开state.pet：`{ready,emotions:[id],gestures:[id],current,error?}`；能力只来自实际资源和原生参数。API仅在模型就绪时注册`pet_react`，输入`{emotion,gesture,seconds?,strength?}`；时长2.5–6秒、头部强度0.3–1，拒绝额外字段、任意参数、换装和不支持的动作。
+
+模型窗口以`reportPetStatus`上报能力/阶段，`petReactionResult`回报请求id及实际结果或错误；只有模型窗口能提交，操作面板不能伪造回执。play工具只在实际启动后返回`status:'playing'`；10秒未确认即按请求id撤销，不允许迟到启动。举手/竖指预载成对资源，两段强制非循环并等待原生motionFinish，失败时恢复捕获的手势选择器。表达层在原生自然动作后、物理之前混合，不改原模型。清除会话先停止仍在运行的场景，再删除会话；真实停止失败不伪报成功。
+
 
 ## 当前便签只读接口
 

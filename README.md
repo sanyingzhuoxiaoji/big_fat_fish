@@ -34,6 +34,13 @@ npm start
 
 5.3 系列始终开启思考，应用使用轻量推理档 `low`；思考内容只在工具调用上下文中原样回传，不进入聊天正文或气泡。旧模型拥塞可能返回 HTTP 429；应用呈现真实错误，不自动重试任务写入或悄悄切换模型。
 
+## 聊天表情与动作
+
+模型就绪后，聊天API通过`pet_react`选择当前模型实际支持的表情和动作：开心、害羞、爱心、疑惑、惊讶、难过等表情，以及挥手、竖指、点头、摇头、歪头。动作幅度和时长受本地限制，不开放任意参数或换装操作。
+
+工具回执只确认“已启动”，不假报播放完成。动作结束或停止后恢复待机，举手/竖指配套播放回到默认手的动画；新动作先清理旧动作，避免叠加和姿势残留。编排顺序参考[鲸语动作引擎](https://github.com/InariNGT-Ofiicial/jingyu-live2d-agent/blob/main/web/engine.mjs)，保留模型原作者物理。
+
+
 ## 联动 desktop_note
 
 直接联动已安装的[桌面便签](https://github.com/sanyingzhuoxiaoji/desktop_note)，不要求新版桥接、不升级安装版，也不运行便签源码。默认读取并监听 `%APPDATA%/desktop-sticky-note/sticky-note-data.json`；便签中的任务、状态和已有提醒变化后自动刷新。

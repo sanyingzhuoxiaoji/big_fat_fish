@@ -16,6 +16,8 @@
   const state = {
     model: null,
     app: null,
+    reactions: null,
+    reactionRequestId: null,
     hovered: false,
     dragging: false,
     dragMoved: false,
@@ -57,48 +59,18 @@
   }
 
   /* ---------- 表情/动作 ---------- */
-  function applyExpression(name) {
-    if (!state.model || !name) return;
-    try {
-      const manager = state.model.internalModel.motionManager.expressionManager;
-      if (!manager || manager.getExpressionIndex(String(name)) < 0) {
-        console.warn('[大肥鱼] 表情不存在：', name);
-        return;
-      }
-      // 新引擎支持叠加；反馈表情只保留当前状态，回复结束后不残留“加载”。
-      manager.clearExpressions();
-      Promise.resolve(state.model.expression(String(name))).catch(
-        (error) => console.warn('[大肥鱼] 表情不可用：', name, error?.message),
-      );
-    } catch (error) {
-      console.warn('[大肥鱼] 表情不可用：', name, error?.message);
-    }
+  function reportPetState(snapshot) {
+    return window.fish.action('reportPetStatus', snapshot).catch(error => {
+      console.warn('[大肥鱼] 模型状态上报失败：', error.message);
+    });
   }
 
-  function applyMotion(name) {
-    if (!state.model || !name) return;
-    try {
-      const target = String(name);
-      const definitions = state.model.internalModel?.motionManager?.definitions || {};
-      const fileSuffix = `/${target.toLowerCase()}.motion3.json`;
-      let found = null;
-      for (const [group, defs] of Object.entries(definitions)) {
-        const index = (Array.isArray(defs) ? defs : [])
-          .findIndex((def) => String(def?.File || '').toLowerCase().endsWith(fileSuffix));
-        if (index >= 0) { found = { group, index }; break; }
-      }
-      const priority = 3; // FORCE：提醒类动效优先播放
-      const playing = found
-        ? state.model.motion(found.group, found.index, priority)
-        : state.model.motion(target, undefined, priority);
-      Promise.resolve(playing).then(
-        (played) => { if (!played) console.warn('[大肥鱼] 动作不存在：', target); },
-        (error) => console.warn('[大肥鱼] 动作不可用：', target, error?.message),
-      );
-    } catch (error) {
-      console.warn('[大肥鱼] 动作不可用：', name, error?.message);
-    }
+  function applyExpression(name) {
+    if (!state.reactions) return;
+    const operation = name ? state.reactions.showExpression(name) : state.reactions.stop();
+    Promise.resolve(operation).catch(error => console.warn('[大肥鱼] 表情不可用：', error.message));
   }
+
 
   /* ---------- 命中检测 ---------- */
   function modelRect() {
@@ -246,18 +218,47 @@
     app.stage.addChild(model);
     model.anchor.set(0.5, 0.5);
     fitModel();
+    const { PetReactionController } = await import('./pet-reactions.mjs');
+    state.reactions = new PetReactionController({ model, onState: reportPetState });
+    await reportPetState(state.reactions.snapshot());
     window.addEventListener('resize', onStageResize);
 
     hideNotices();
   }
 
+  async function handlePetEvent(event) {
+    if (!event || typeof event !== 'object') return;
+    if (event.type === 'bubble') return showBubble(event.text);
+    if (event.type === 'expression') return applyExpression(event.name);
+    if (event.type === 'cancelReaction') {
+      // 主进程超时取消：无回执（对应请求已过期）；仅当该 id 仍是最新动作请求时才生效，过期通知不能停掉替换后的新场景。
+      if (state.reactionRequestId !== event.id) return;
+      state.reactionRequestId = null;
+      if (!state.reactions) return;
+      return state.reactions.stop();
+    }
+    if (event.type !== 'reaction' && event.type !== 'stopReaction') return;
+    try {
+      if (!state.reactions) throw new Error('模型动作尚未加载完成');
+      let playing;
+      if (event.type === 'reaction') {
+        state.reactionRequestId = event.id;
+        playing = state.reactions.play(event.command);
+      } else {
+        state.reactionRequestId = null;
+        playing = state.reactions.stop();
+      }
+      const result = await playing;
+      await window.fish.action('petReactionResult', { id: event.id, result });
+    } catch (error) {
+      await window.fish.action('petReactionResult', { id: event.id, error: error.message });
+    }
+  }
+
   /* ---------- 事件订阅 ---------- */
   function subscribe() {
-    window.fish.onPet((event) => {
-      if (!event || typeof event !== 'object') return;
-      if (event.type === 'bubble') showBubble(event.text);
-      else if (event.type === 'expression') applyExpression(event.name);
-      else if (event.type === 'motion') applyMotion(event.name);
+    window.fish.onPet(event => {
+      handlePetEvent(event).catch(error => console.warn('[大肥鱼] 动作回执失败：', error.message));
     });
     window.addEventListener('mousemove', onPointerMove, { passive: true });
     window.addEventListener('mousedown', onPointerDown);
@@ -265,6 +266,7 @@
     window.addEventListener('mouseleave', onPointerLeave);
     document.addEventListener('contextmenu', (event) => event.preventDefault());
     retryEl?.addEventListener('click', () => window.location.reload());
+    window.addEventListener('beforeunload', () => state.reactions?.destroy());
     window.addEventListener('error', (event) => {
       if (errorEl.hidden && state.app) showError(event.message);
     });
@@ -274,5 +276,6 @@
   loadModel().catch((error) => {
     console.error('[大肥鱼] 模型加载失败：', error);
     showError(error?.message || String(error));
+    reportPetState({ ready: false, emotions: [], gestures: [], current: null, error: error?.message || String(error) });
   });
 })();

@@ -6,6 +6,7 @@ const { LocalNoteReader } = require('./services/local-note-reader.cjs');
 const { resolveInstalledNoteExe } = require('./services/installed-notes.cjs');
 const { ChatService } = require('./services/chat.cjs');
 const { Pomodoro } = require('./services/pomodoro.cjs');
+const { EMOTIONS, GESTURES, normalizeReaction } = require('./ui/reaction-catalog.mjs');
 
 const DEFAULT_API = 'https://open.bigmodel.cn/api/paas/v4';
 const TOOL_DEFINITIONS = [
@@ -77,6 +78,7 @@ function createAppService(options) {
   let chatError = '';
   let closed = false;
   let chatAbort;
+  let reactionChosen = false;
   // let noteProcess; // 旧源码启动子进程句柄（保留备查，未启用）
   const chat = new ChatService({ filePath: path.join(dataDir, 'chat.json') });
   let note;
@@ -86,6 +88,7 @@ function createAppService(options) {
     return {
       settings: { ...publicSettings, hasApiKey: Boolean(apiKey), error: settingsError },
       notes: note.snapshot(), focus: timer.snapshot(),
+      pet: options.getPetState?.() || { ready: false, emotions: [], gestures: [], current: null },
       chat: { messages: chat.messages(), busy: chatBusy, error: chatError }
     };
   };
@@ -159,6 +162,29 @@ function createAppService(options) {
   // function toolTask({ id, text, status, remindAt, reminded }) {
   //   return { id, text, status, remindAt, reminded };
   // }
+
+  function chatTools() {
+    const pet = options.getPetState?.();
+    if (!pet?.ready || !options.playPetReaction) return TOOL_DEFINITIONS;
+    return [...TOOL_DEFINITIONS, {
+      type: 'function',
+      function: {
+        name: 'pet_react',
+        description: '根据聊天语气实际驱动大肥鱼表情和动作。每轮自然聊天可选择一次；不操作便签。回执playing只代表已经启动，不代表完成。',
+        parameters: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            emotion: { type: 'string', enum: pet.emotions, description: pet.emotions.map(id => `${id}=${EMOTIONS[id].label}`).join('，') },
+            gesture: { type: 'string', enum: pet.gestures, description: pet.gestures.map(id => `${id}=${GESTURES[id].label}`).join('，') },
+            seconds: { type: 'number', minimum: 2.5, maximum: 6, description: '整段动作时长，包含举手/竖指后的回到默认姿势' },
+            strength: { type: 'number', minimum: 0.3, maximum: 1, description: '头部动作幅度，不修改作者表情素材' },
+          },
+          required: ['emotion', 'gesture'],
+        },
+      },
+    }];
+  }
+
   async function executeTool(name, args) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('工具参数必须是对象');
     switch (name) {
@@ -176,6 +202,14 @@ function createAppService(options) {
       // }
       // case 'complete_task': return toolTask(await updateTask({ id: args.id, patch: { status: 'done' } }));
       case 'start_focus': return startFocus(args);
+      case 'pet_react': {
+        const command = normalizeReaction(args, options.getPetState?.());
+        if (!options.playPetReaction) throw new Error('模型动作控制尚未就绪');
+        const receipt = await options.playPetReaction(command);
+        if (receipt?.status !== 'playing') throw new Error('模型未确认动作已经启动');
+        reactionChosen = true;
+        return { ...receipt, emotionLabel: EMOTIONS[receipt.emotion].label, gestureLabel: GESTURES[receipt.gesture].label };
+      }
       default: throw new Error(`不允许的工具：${name}`);
     }
   }
@@ -267,24 +301,30 @@ function createAppService(options) {
         case 'resumeFocus': timer.resume(); publish(); return timer.snapshot();
         case 'stopFocus': timer.stop(); publish(); return timer.snapshot();
         case 'startRest': timer.startRest(); publish(); return timer.snapshot();
-        case 'clearChat':
+        case 'clearChat': {
           if (chatBusy) throw new Error('请先等待本轮回复结束再清除会话');
+          // 模型就绪时先停掉仍在播放的动作，失败则中止清除，不假装已清空；模型未就绪则不可能残留场景。
+          if (options.getPetState?.()?.ready) await options.stopPetReaction?.();
           chat.clear(); chatError = ''; publish(); return state();
-        case 'cancelChat': chatAbort?.abort(); return { cancelled: true };
+        }
+        case 'cancelChat':
+          chatAbort?.abort();
+          await options.stopPetReaction?.().catch(() => {});
+          return { cancelled: true };
         case 'sendMessage': {
           if (!apiKey) throw new Error('请先在设置中填写GLM API Key');
           if (chatBusy) throw new Error('大肥鱼正在回复，请等待或停止当前回复');
           const text = textValue(payload.text, '消息');
-          chatBusy = true; chatError = ''; chatAbort = new AbortController(); publish();
+          chatBusy = true; chatError = ''; reactionChosen = false; chatAbort = new AbortController(); publish();
           onPet?.({ type: 'expression', name: '加载' });
           try {
-            const answer = await chat.send({ text, config: { apiBaseUrl: settings.apiBaseUrl, model: settings.model, apiKey }, tools: TOOL_DEFINITIONS, executeTool, onEvent: event => { onChat?.(event); }, signal: chatAbort.signal });
-            onPet?.({ type: 'expression', name: '脸红' });
+            const answer = await chat.send({ text, config: { apiBaseUrl: settings.apiBaseUrl, model: settings.model, apiKey }, tools: chatTools(), executeTool, onEvent: event => { onChat?.(event); }, signal: chatAbort.signal });
+            if (!reactionChosen) onPet?.({ type: 'expression', name: '' });
             onPet?.({ type: 'bubble', text: answer });
             return answer;
           } catch (error) {
-            chatError = error.name === 'AbortError' ? '已停止回复；已成功执行的任务操作不会撤回' : error.message;
-            onPet?.({ type: 'expression', name: '流冷汗' });
+            chatError = error.name === 'AbortError' ? '已停止回复；已启动的计时等操作不会撤回' : error.message;
+            if (error.name !== 'AbortError') onPet?.({ type: 'expression', name: '流冷汗' });
             throw new Error(chatError);
           } finally { chatBusy = false; chatAbort = null; publish(); }
         }

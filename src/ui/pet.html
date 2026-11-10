@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' fish: data: blob:; script-src 'self' fish: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' fish: data: blob:; connect-src fish:;">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>大肥鱼</title>
+  <link rel="stylesheet" href="fish://app/pet.css">
+</head>
+<body>
+  <main id="pet" aria-label="大肥鱼桌宠">
+    <div id="bubble" role="status" aria-live="polite" hidden></div>
+    <div id="model-stage" aria-label="Live2D 模型"></div>
+    <div id="loading" class="notice">
+      <span class="spinner" aria-hidden="true"></span>
+      <strong>正在加载大肥鱼…</strong>
+      <span id="loading-detail">正在准备模型与动画</span>
+    </div>
+    <div id="error" class="notice error" hidden role="alert">
+      <strong>大肥鱼暂时无法显示</strong>
+      <span id="error-detail"></span>
+      <span class="recovery">可在控制面板中选择模型；运行库缺失或过旧时请执行 <code>npm install &amp;&amp; npm run setup</code>。</span>
+      <button id="retry" type="button">重新加载</button>
+    </div>
+  </main>
+  <!-- 顺序要求：Cubism Core 必须先于 runtime.bundle.js（引擎入口检测 window.Live2DCubismCore） -->
+  <script src="fish://vendor/live2dcubismcore.min.js"></script>
+  <script src="fish://vendor/runtime.bundle.js"></script>
+  <script src="fish://app/pet.js"></script>
+</body>
+</html>

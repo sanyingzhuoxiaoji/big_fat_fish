@@ -10,7 +10,7 @@
 
 业务action：`getState`, `saveSettings`, `sendMessage`({text}), `clearChat`, `createTask`({text,remindAt?}), `updateTask`({id,patch}), `startFocus`({taskId?,text?,workMinutes?,restMinutes?}), `pauseFocus`, `resumeFocus`, `stopFocus`, `startRest`, `connectNotes`, `openNotes`。
 
-窗口action由main负责：`showPanel`, `hidePanel`, `setMouseThrough`({enabled}), `movePet`({dx,dy}), `quit`, `selectModel`。服务saveSettings可接收 `{apiBaseUrl,model,apiKey,rememberKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}`。
+窗口action由main负责：`showPanel`, `hidePanel`, `setMouseThrough`({enabled?,hovered?})（仅传hovered不更改用户开关，返回{enabled,mouseThrough,ignore}）, `movePet`({dx,dy}), `quit`, `selectModel`, `getShellInfo`。服务saveSettings可接收 `{apiBaseUrl,model,apiKey,rememberKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}`。
 
 公开state：`{settings:{apiBaseUrl,model,hasApiKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}, notes:{connected,error,revision,items:[]}, focus:{phase,paused,remainingMs,totalMs,taskId,text,completedToday,focusMinutesToday}, chat:{messages:[{role,content}],busy,error}}`。不返回原始Key。onChat事件 `{type:'start'|'delta'|'tool'|'done'|'error',text?,name?,result?,message?}`。`sendMessage`可等待完成，期间持续发事件。
 
@@ -30,7 +30,7 @@
 
 ## GLM聊天模块
 
-`src/services/chat.cjs` 导出 `ChatService`：`new ChatService({filePath,fetchImpl?,now?})`；`messages()`返回仅可展示的user/assistant记录；`clear()`；`send({text,config:{apiBaseUrl,model,apiKey},tools,executeTool,onEvent,signal?})`返回最终assistant内容。tools为OpenAI function schema，executeTool(name,args)为异步真实业务执行。SSE流收集content与按index分片的tool_calls，工具回执进入下一轮messages；工具失败返回真实错误，不能伪造成功。会话持久化不保存Key。默认GLM关闭thinking用于直接聊天，支持参数配置与取消。不得读取环境里的其他凭据。官方文档：https://docs.bigmodel.cn/cn/guide/capabilities/function-calling.md 。
+`src/services/chat.cjs` 导出 `ChatService`：`new ChatService({filePath,fetchImpl?,now?})`；`messages()`返回仅可展示的user/assistant记录；`clear()`；`send({text,config:{apiBaseUrl,model,apiKey,thinking?,reasoningEffort?},tools,executeTool,onEvent,signal?})`返回最终assistant内容。tools为OpenAI function schema，executeTool(name,args)为异步真实业务执行。SSE流收集content与按index分片的tool_calls，工具回执进入下一轮messages；工具失败返回真实错误，不能伪造成功。GLM 5.3系列自动启用thinking及reasoning_effort:low，工具回合保留原始reasoning_content但不展示；其他模型沿用关闭thinking，thinking:false可省略该字段。会话持久化不保存Key。支持取消，不自动重试任务写入。不得读取环境里的其他凭据。官方文档：https://docs.bigmodel.cn/cn/guide/capabilities/function-calling.md 、https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode.md 。
 
 ## 番茄钟模块
 

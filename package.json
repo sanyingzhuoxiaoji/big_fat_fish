@@ -1,0 +1,20 @@
+{
+  "name": "big-fat-fish",
+  "productName": "大肥鱼桌宠",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows 桌面大肥鱼 Live2D 桌宠：GLM 流式聊天、desktop_note 双向待办、番茄钟与提醒",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "setup": "node scripts/prepare-runtime.cjs",
+    "test": "node scripts/test.cjs",
+    "prepare-runtime": "node scripts/prepare-runtime.cjs"
+  },
+  "devDependencies": {
+    "@laplace.live/pixijs-live2d": "0.6.1",
+    "electron": "43.7.9",
+    "esbuild": "0.28.2",
+    "pixi.js": "8.16.0"
+  }
+}

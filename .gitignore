@@ -5,6 +5,8 @@ node_modules/
 !.env.example
 DeepSeek免费公皮/
 vendor/live2dcubismcore.min.js
+vendor/runtime.bundle.js
+vendor/runtime.bundle.js.LEGAL.txt
 *.log
 dist/
 coverage/

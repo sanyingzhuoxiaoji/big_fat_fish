@@ -1,0 +1,8 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {TaskStore}=require('../../便签/task-store.cjs');
+test('external task changes preserve legacy images, notes and document appearance',t=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fish-note-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const filePath=path.join(dir,'sticky-note-data.json');fs.writeFileSync(filePath,JSON.stringify({version:1,title:'我的便签',themeColor:'#123456',items:[{id:'old',text:'原任务',images:['data:image/png;base64,AAAA'],note:'保留备注',status:'todo',createdAt:'2026-01-01T00:00:00Z'}]}));const store=new TaskStore({filePath});const {item}=store.create({text:'外部新任务',remindAt:'2030-01-01T00:00:00+08:00'});store.update('old',{status:'done'});const saved=JSON.parse(fs.readFileSync(filePath,'utf8'));assert.equal(saved.title,'我的便签');assert.equal(saved.themeColor,'#123456');assert.equal(saved.items.find(x=>x.id==='old').images[0],'data:image/png;base64,AAAA');assert.equal(saved.items.find(x=>x.id==='old').note,'保留备注');assert.equal(saved.items.find(x=>x.id===item.id).text,'外部新任务');assert.equal(saved.items.find(x=>x.id==='old').status,'done');});
+test('changing reminder resets its delivered flag without changing other tasks',t=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fish-note-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const store=new TaskStore({filePath:path.join(dir,'data.json')});const {item}=store.create({text:'提醒任务'});store.update(item.id,{reminded:true});store.update(item.id,{remindAt:'2030-02-01T12:00:00+08:00'});assert.equal(store.snapshot().data.items.find(x=>x.id===item.id).reminded,false);});

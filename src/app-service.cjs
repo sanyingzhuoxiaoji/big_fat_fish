@@ -1,18 +1,20 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
-const { NoteClient } = require('./services/note-client.cjs');
+// 旧双向便签实现（保留备查，未启用，不再导入）：const { spawn } = require('node:child_process'); const { NoteClient } = require('./services/note-client.cjs');
+const { LocalNoteReader } = require('./services/local-note-reader.cjs');
+const { resolveInstalledNoteExe } = require('./services/installed-notes.cjs');
 const { ChatService } = require('./services/chat.cjs');
 const { Pomodoro } = require('./services/pomodoro.cjs');
 
 const DEFAULT_API = 'https://open.bigmodel.cn/api/paas/v4';
 const TOOL_DEFINITIONS = [
-  { name: 'list_tasks', description: '读取真实待办列表。修改或完成已有任务前，先查询以获取真实ID。', properties: { status: { type: 'string', enum: ['todo', 'done', 'all'] } }, required: [] },
-  { name: 'create_task', description: '保存用户明确要求记录的新待办。remindAt是提醒时间，不是截止日期；用户未指定具体时间则不填写，时间含糊时先追问。', properties: { text: { type: 'string' }, remindAt: { type: 'string', description: '带时区的ISO8601，例如2030-01-01T15:00:00+08:00' } }, required: ['text'] },
-  { name: 'update_task', description: '修改真实任务文字或提醒时间。取消提醒时remindAt设为null。', properties: { id: { type: 'string' }, text: { type: 'string' }, remindAt: { type: ['string', 'null'] } }, required: ['id'] },
-  { name: 'complete_task', description: '仅在用户明确表示任务已完成时标记完成。番茄钟结束不等于任务完成。', properties: { id: { type: 'string' } }, required: ['id'] },
-  { name: 'start_focus', description: '为指定待办启动番茄钟。先查询获取任务ID；也可用text记录独立专注目标。', properties: { taskId: { type: 'string' }, text: { type: 'string' }, workMinutes: { type: 'number' }, restMinutes: { type: 'number' } }, required: [] }
+  { name: 'list_tasks', description: '读取本机便签里的实时待办列表（只读，不能创建、修改或完成便签中的任务）。', properties: { status: { type: 'string', enum: ['todo', 'done', 'all'] } }, required: [] },
+  // 旧双向写入工具（保留备查，未启用，对模型不可见）：
+  // { name: 'create_task', description: '保存用户明确要求记录的新待办。remindAt是提醒时间，不是截止日期；用户未指定具体时间则不填写，时间含糊时先追问。', properties: { text: { type: 'string' }, remindAt: { type: 'string', description: '带时区的ISO8601，例如2030-01-01T15:00:00+08:00' } }, required: ['text'] },
+  // { name: 'update_task', description: '修改真实任务文字或提醒时间。取消提醒时remindAt设为null。', properties: { id: { type: 'string' }, text: { type: 'string' }, remindAt: { type: ['string', 'null'] } }, required: ['id'] },
+  // { name: 'complete_task', description: '仅在用户明确表示任务已完成时标记完成。番茄钟结束不等于任务完成。', properties: { id: { type: 'string' } }, required: ['id'] },
+  { name: 'start_focus', description: '为指定待办启动番茄钟（只启动计时，不改变便签任务状态）。先查询获取任务ID；也可用text记录独立专注目标。', properties: { taskId: { type: 'string' }, text: { type: 'string' }, workMinutes: { type: 'number' }, restMinutes: { type: 'number' } }, required: [] }
 ].map(({ name, description, properties, required }) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } }));
 
 function atomicJSON(file, data) {
@@ -29,11 +31,12 @@ function textValue(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label}不能为空`);
   return value.trim();
 }
-function reminderValue(value) {
-  if (value === null || value === '') return null;
-  if (typeof value !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) throw new Error('提醒时间必须是明确日期、时间及所在时区');
-  return new Date(value).toISOString();
-}
+// 旧双向写入的提醒时间校验（保留备查，未启用）：
+// function reminderValue(value) {
+//   if (value === null || value === '') return null;
+//   if (typeof value !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) throw new Error('提醒时间必须是明确日期、时间及所在时区');
+//   return new Date(value).toISOString();
+// }
 function duration(value, label) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0 || number > 1440) throw new Error(`${label}应大于0且不超过1440分钟`);
@@ -47,18 +50,20 @@ function apiAddress(value) {
 }
 
 function createAppService(options) {
-  const { dataDir, onState, onChat, onPet, notify, encryptSecret, decryptSecret } = options;
+  const { dataDir, onState, onChat, onPet, notify, encryptSecret, decryptSecret, desktopDir, readShortcutLink, openNoteExecutable } = options;
   fs.mkdirSync(dataDir, { recursive: true });
   const settingsFile = path.join(dataDir, 'settings.json');
   const saved = loadJSON(settingsFile);
-  const sibling = path.resolve(__dirname, '..', '..');
-  const defaultNoteProject = fs.existsSync(path.join(sibling, '便签', 'package.json')) ? path.join(sibling, '便签') : path.join(sibling, 'desktop_note');
+  // 旧源码项目路径配置（保留备查，未启用，不再对外返回）：
+  // const sibling = path.resolve(__dirname, '..', '..');
+  // const defaultNoteProject = fs.existsSync(path.join(sibling, '便签', 'package.json')) ? path.join(sibling, '便签') : path.join(sibling, 'desktop_note');
   const defaultNoteData = options.noteDataDir || process.env.DESKTOP_NOTE_DATA_DIR || path.join(process.env.APPDATA || path.join(dataDir, 'appdata'), 'desktop-sticky-note');
   let settings = {
     apiBaseUrl: DEFAULT_API, model: 'glm-5.3-flash', workMinutes: 25, restMinutes: 5,
-    noteProjectPath: defaultNoteProject, noteDataDir: defaultNoteData,
+    noteExePath: '', noteDataDir: defaultNoteData,
     ...saved
   };
+  delete settings.noteProjectPath; // 旧双向配置字段不再出现在返回的设置里
   if (options.noteDataDir) settings.noteDataDir = options.noteDataDir;
   let apiKey = process.env.GLM_API_KEY || '';
   let settingsError = '';
@@ -72,7 +77,7 @@ function createAppService(options) {
   let chatError = '';
   let closed = false;
   let chatAbort;
-  let noteProcess;
+  // let noteProcess; // 旧源码启动子进程句柄（保留备查，未启用）
   const chat = new ChatService({ filePath: path.join(dataDir, 'chat.json') });
   let note;
   let timer;
@@ -85,16 +90,16 @@ function createAppService(options) {
     };
   };
   const publish = () => { if (!closed && note && timer) onState?.(state()); };
-  const createNoteClient = () => new NoteClient({
+  const createLocalNoteReader = () => new LocalNoteReader({
     dataDir: settings.noteDataDir,
     onChange: publish,
     onReminder: item => {
       onPet?.({ type: 'bubble', text: `该做这件事啦：${item.text || '待办任务'}` });
       onPet?.({ type: 'expression', name: '加载' });
-      // 待办系统通知由便签发出，这里只呈现桌宠提醒，不启动第二套闹钟。
+      // 提醒调度与系统通知由安装版便签负责，这里只呈现桌宠提醒，不启动第二套闹钟。
     }
   });
-  note = createNoteClient();
+  note = createLocalNoteReader();
   timer = new Pomodoro({
     filePath: path.join(dataDir, 'focus.json'), onChange: publish,
     onComplete: focus => {
@@ -107,8 +112,9 @@ function createAppService(options) {
   });
 
   function requireNotes() {
-    if (!note.snapshot().connected) throw new Error('待办尚未连接。请在设置中启动或连接 desktop_note');
+    if (!note.snapshot().connected) throw new Error('本机便签尚未连接。打开已安装的桌面便签后会自动读取，也可在设置中检查便签数据目录');
   }
+  /* 旧双向写入实现（保留备查，未启用；本机便签为只读，不能写回数据）：
   async function createTask(input) {
     requireNotes();
     const payload = { text: textValue(input.text, '任务内容') };
@@ -131,6 +137,7 @@ function createAppService(options) {
     if (!Object.keys(allowed).length) throw new Error('没有可更新的任务字段');
     return note.updateTask(id, allowed);
   }
+  */
   function startFocus(input = {}) {
     let task;
     if (input.taskId) {
@@ -148,9 +155,10 @@ function createAppService(options) {
     publish();
     return timer.snapshot();
   }
-  function toolTask({ id, text, status, remindAt, reminded }) {
-    return { id, text, status, remindAt, reminded };
-  }
+  // 旧写入结果整形（保留备查，未启用）：
+  // function toolTask({ id, text, status, remindAt, reminded }) {
+  //   return { id, text, status, remindAt, reminded };
+  // }
   async function executeTool(name, args) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('工具参数必须是对象');
     switch (name) {
@@ -160,12 +168,13 @@ function createAppService(options) {
         const filtered = args.status === 'all' ? items : items.filter(item => item.status === (args.status || 'todo'));
         return { items: filtered.map(({ id, text, status, remindAt, reminded }) => ({ id, text, status, remindAt, reminded })), localTime: new Date().toString() };
       }
-      case 'create_task': return toolTask(await createTask(args));
-      case 'update_task': {
-        const { id, ...patch } = args;
-        return toolTask(await updateTask({ id, patch }));
-      }
-      case 'complete_task': return toolTask(await updateTask({ id: args.id, patch: { status: 'done' } }));
+      // 旧双向写入分支（保留备查，未启用）：
+      // case 'create_task': return toolTask(await createTask(args));
+      // case 'update_task': {
+      //   const { id, ...patch } = args;
+      //   return toolTask(await updateTask({ id, patch }));
+      // }
+      // case 'complete_task': return toolTask(await updateTask({ id: args.id, patch: { status: 'done' } }));
       case 'start_focus': return startFocus(args);
       default: throw new Error(`不允许的工具：${name}`);
     }
@@ -176,7 +185,11 @@ function createAppService(options) {
     if (Object.hasOwn(input, 'apiBaseUrl')) next.apiBaseUrl = apiAddress(input.apiBaseUrl);
     if (Object.hasOwn(input, 'model')) next.model = textValue(input.model, '模型名称');
     for (const [key, label] of [['workMinutes', '专注时长'], ['restMinutes', '休息时长']]) if (Object.hasOwn(input, key)) next[key] = duration(input[key], label);
-    if (Object.hasOwn(input, 'noteProjectPath')) next.noteProjectPath = path.resolve(textValue(input.noteProjectPath, '便签项目路径'));
+    if (Object.hasOwn(input, 'noteExePath')) {
+      const requested = String(input.noteExePath ?? '').trim();
+      next.noteExePath = requested ? path.resolve(requested) : ''; // 留空表示自动查找已安装便签
+    }
+    // 旧源码项目路径设置（保留备查，未启用）：if (Object.hasOwn(input, 'noteProjectPath')) next.noteProjectPath = path.resolve(textValue(input.noteProjectPath, '便签项目路径'));
     if (Object.hasOwn(input, 'noteDataDir')) next.noteDataDir = path.resolve(textValue(input.noteDataDir, '便签数据路径'));
     let nextKey = apiKey;
     if (Object.hasOwn(input, 'apiKey') && input.apiKey !== '') nextKey = String(input.apiKey).trim();
@@ -195,11 +208,26 @@ function createAppService(options) {
     settings = next;
     apiKey = nextKey;
     settingsError = '';
-    if (notePathChanged) { note.close(); note = createNoteClient(); await note.connect().catch(() => {}); }
+    if (notePathChanged) { note.close(); note = createLocalNoteReader(); await note.connect().catch(() => {}); }
     publish();
     return state();
   }
 
+  async function openNotes() {
+    if (typeof openNoteExecutable !== 'function') throw new Error('当前环境无法打开已安装便签（缺少系统shell调用）');
+    const resolved = resolveInstalledNoteExe({ noteExePath: settings.noteExePath, desktopDir, readShortcutLink, appData: process.env.APPDATA || '' });
+    const failure = await openNoteExecutable(resolved.exe); // shell.openPath 成功返回空字符串，失败返回错误描述
+    if (failure) throw new Error(`启动便签失败：${failure}`);
+    if (settings.noteExePath !== resolved.exe) {
+      settings.noteExePath = resolved.exe; // 自动找到的路径公开到设置，供界面与下次启动使用
+      atomicJSON(settingsFile, settings);
+    }
+    // 启动后立即重读；数据文件若尚未写出，读取器会持续观察目录并自动连接，不伪报已连接。
+    await note.connect().catch(() => {});
+    return note.snapshot();
+  }
+
+  /* 旧源码启动实现（保留备查，未启用，不再拉起源码项目）：
   async function openNotes() {
     const project = settings.noteProjectPath;
     const manifestPath = path.join(project, 'package.json');
@@ -219,6 +247,7 @@ function createAppService(options) {
     await note.connect().catch(() => {});
     return note.snapshot();
   }
+  */
 
   return {
     async init() { await note.connect().catch(() => {}); publish(); return state(); },
@@ -230,8 +259,9 @@ function createAppService(options) {
         case 'saveSettings': return saveSettings(payload);
         case 'connectNotes': await note.connect(); return state();
         case 'openNotes': return openNotes();
-        case 'createTask': return createTask(payload);
-        case 'updateTask': return updateTask(payload);
+        // 旧双向写入入口（保留备查，未启用；现走 default 抛“未知操作”）：
+        // case 'createTask': return createTask(payload);
+        // case 'updateTask': return updateTask(payload);
         case 'startFocus': return startFocus(payload);
         case 'pauseFocus': timer.pause(); publish(); return timer.snapshot();
         case 'resumeFocus': timer.resume(); publish(); return timer.snapshot();

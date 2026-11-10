@@ -15,7 +15,7 @@ const PANEL_HEIGHT = 650;
 const DEFAULT_MODEL = path.join(ROOT, 'DeepSeek免费公皮', 'DeepSeek', '大肥鱼.model3.json');
 const SCHEME = 'fish';
 const SHELL_STATE_FILE = path.join(LOCAL, 'userData', 'shell-state.json');
-const WINDOW_ACTIONS = new Set(['showPanel', 'hidePanel', 'setMouseThrough', 'movePet', 'setPetScale', 'quit', 'selectModel', 'getShellInfo']);
+const WINDOW_ACTIONS = new Set(['showPanel', 'hidePanel', 'setMouseThrough', 'movePet', 'setPetScale', 'quit', 'selectModel', 'selectNotesExecutable', 'getShellInfo']);
 
 protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
@@ -280,6 +280,17 @@ async function selectModel() {
   return { canceled: false, modelPath };
 }
 
+async function selectNotesExecutable() {
+  const result = await dialog.showOpenDialog(panelWindow || petWindow, {
+    title: '选择本机已安装的桌面便签',
+    defaultPath: service.state().settings.noteExePath || undefined,
+    filters: [{ name: 'Windows 程序', extensions: ['exe'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  return service.handle('saveSettings', { noteExePath: result.filePaths[0] });
+}
+
 async function handleWindowAction(method, payload = {}) {
   switch (method) {
     case 'showPanel': return showPanel();
@@ -336,6 +347,7 @@ async function handleWindowAction(method, payload = {}) {
       app.quit();
       return { quitting: true };
     case 'selectModel': return selectModel();
+    case 'selectNotesExecutable': return selectNotesExecutable();
     case 'getShellInfo': return {
       modelPath,
       modelExists: fs.existsSync(modelPath),
@@ -455,6 +467,9 @@ function createService() {
   service = createAppService({
     dataDir,
     noteDataDir,
+    desktopDir: app.getPath('desktop'),
+    readShortcutLink: (file) => shell.readShortcutLink(file),
+    openNoteExecutable: (file) => shell.openPath(file),
     onState: (state) => broadcast('fish:state', state),
     onChat: (event) => broadcast('fish:chat', event),
     onPet: (event) => broadcast('fish:pet', event),

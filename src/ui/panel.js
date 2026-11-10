@@ -12,8 +12,9 @@
     chatSend: $('#btn-chat-send'), chatStop: $('#btn-chat-stop'), chatClear: $('#btn-chat-clear'),
 
     notesStatus: $('#notes-status'), tasksMsg: $('#tasks-msg'),
-    taskForm: $('#task-form'), taskText: $('#task-text'), taskRemind: $('#task-remind'),
-    taskCreate: $('#btn-create-task'), openNotes: $('#btn-open-notes'), connectNotes: $('#btn-connect-notes'),
+    // 双向联动表单暂存：taskForm: $('#task-form'), taskText: $('#task-text'), taskRemind: $('#task-remind'),
+    // taskCreate: $('#btn-create-task'),
+    openNotes: $('#btn-open-notes'), connectNotes: $('#btn-connect-notes'),
     todoList: $('#todo-list'), todoEmpty: $('#todo-empty'), doneList: $('#done-list'), doneEmpty: $('#done-empty'),
 
     focusPhase: $('#focus-phase'), focusTime: $('#focus-time'), focusTarget: $('#focus-target'),
@@ -27,7 +28,8 @@
     setApiBase: $('#set-api-base'), setModel: $('#set-model'), selectModelBtn: $('#btn-select-model'),
     setApiKey: $('#set-api-key'), keyState: $('#key-state'), setRemember: $('#set-remember-key'),
     clearKeyBtn: $('#btn-clear-key'), setWork: $('#set-work'), setRest: $('#set-rest'),
-    setNoteProject: $('#set-note-project'), setNoteData: $('#set-note-data'),
+    // 双向源码配置暂存：setNoteProject: $('#set-note-project'),
+    setNoteExe: $('#set-note-exe'), selectNotesBtn: $('#btn-select-notes'), setNoteData: $('#set-note-data'),
     mouseBtn: $('#btn-mouse-through'), mouseState: $('#mouse-state'),
     petScale: $('#set-pet-scale'), petScaleValue: $('#pet-scale-value'), resetPetScale: $('#btn-reset-pet-scale'),
     tabs: [...document.querySelectorAll('[role="tab"]')],
@@ -50,8 +52,8 @@
 
   const notesBusy = new Set();      // 'open' | 'connect'
   let itemsSig = '';
-  const busyIds = new Set();        // 正在执行操作的任务 id
-  const taskEdit = new Map();       // id -> {kind:'text'|'remind', value}
+    // 双向编辑状态暂存：const busyIds = new Set();
+    // const taskEdit = new Map(); // id -> {kind:'text'|'remind', value}
 
   let focusOptionsSig = '';
   let focusTaskId = '';
@@ -67,8 +69,9 @@
     idle: '未开始', work: '专注中', workEnd: '本轮专注结束', rest: '休息中', restEnd: '休息结束',
   };
   const TOOL_LABELS = {
-    list_tasks: '读取待办', create_task: '新建待办', update_task: '修改待办',
-    complete_task: '完成任务', start_focus: '启动专注',
+    // 双向工具标签暂存：list_tasks: '读取待办', create_task: '新建待办', update_task: '修改待办',
+    // complete_task: '完成任务', start_focus: '启动专注',
+    list_tasks: '读取待办', start_focus: '启动专注',
   };
 
   // ---------- 小工具 ----------
@@ -94,6 +97,7 @@
     });
   }
 
+  /* 双向联动时间编辑辅助函数暂存，当前只读，不启用。
   // datetime-local 本地值 → 带时区偏移的 ISO（例如 2026-01-01T15:00:00+08:00）
   function localToOffsetISO(value) {
     const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
@@ -113,6 +117,7 @@
     if (Number.isNaN(d.getTime())) return '';
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
+  */
 
   function truncate(text, max) {
     return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -345,6 +350,7 @@
   });
 
   // ---------- 待办 ----------
+  /* 双向联动的列表编辑、新增、修改、完成和提醒入口暂存；当前只读，不启用。
   function taskItemElement(item) {
     const li = document.createElement('li');
     li.className = 'task';
@@ -597,6 +603,65 @@
       el.taskCreate.disabled = false;
     }
   });
+  */
+
+  function syncReadOnlyList(list, items) {
+    const existing = new Map([...list.children].map(li => [li.dataset.id, li]));
+    const keep = new Set();
+    for (const [index, item] of items.entries()) {
+      keep.add(item.id);
+      let li = existing.get(item.id);
+      if (!li) {
+        li = document.createElement('li');
+        li.className = 'task';
+        li.dataset.id = item.id;
+        li.innerHTML = `<button type="button" class="task-select">
+          <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7"></circle><path d="m5.5 9 2.3 2.3 4.7-4.7"></path></svg>
+          <span class="task-main"><span class="task-text"></span><span class="task-remind" hidden></span></span>
+        </button>`;
+      }
+      const done = item.status === 'done';
+      li.classList.toggle('is-done', done);
+      const button = li.querySelector('.task-select');
+      button.disabled = done;
+      button.setAttribute('aria-label', done ? `已完成：${item.text}` : `选择专注：${item.text}`);
+      li.querySelector('.task-text').textContent = item.text || '未命名任务';
+      const reminder = li.querySelector('.task-remind');
+      reminder.hidden = !item.remindAt;
+      reminder.textContent = item.remindAt ? `${fmtLocal(item.remindAt)}${item.reminded ? ' · 已提醒' : ' · 提醒'}` : '';
+      if (list.children[index] !== li) list.insertBefore(li, list.children[index] || null);
+    }
+    for (const [id, li] of existing) if (!keep.has(id)) li.remove();
+  }
+
+  function renderNotes(notes) {
+    const items = Array.isArray(notes.items) ? notes.items : [];
+    el.openNotes.disabled = notesBusy.has('open');
+    el.connectNotes.disabled = notesBusy.has('connect');
+    el.notesStatus.textContent = notes.error
+      ? `${notes.error}${items.length ? '；保留上次读取的任务。' : ''}`
+      : notes.connected ? '已读取本机便签 · 单向只读同步' : '尚未读取便签，请打开本机便签或检查数据目录。';
+    el.notesStatus.classList.toggle('is-error', Boolean(notes.error) || !notes.connected);
+    const todo = items.filter(item => item.status === 'todo');
+    const done = items.filter(item => item.status === 'done');
+    el.todoEmpty.hidden = todo.length > 0;
+    el.doneEmpty.hidden = done.length > 0;
+    const sig = JSON.stringify(items);
+    if (sig !== itemsSig) {
+      itemsSig = sig;
+      syncReadOnlyList(el.todoList, todo);
+      syncReadOnlyList(el.doneList, done);
+    }
+  }
+
+  el.todoList.addEventListener('click', event => {
+    const button = event.target.closest('.task-select');
+    if (!button || button.disabled) return;
+    focusTaskId = button.closest('.task').dataset.id;
+    overlayFocusSelect();
+    selectView('focus');
+    showLine(el.focusMsg, '已选择任务，点击“开始专注”启动计时。', 'ok');
+  });
 
   el.openNotes.addEventListener('click', async () => {
     notesBusy.add('open');
@@ -604,9 +669,9 @@
     try {
       const snapshot = await window.fish.action('openNotes');
       if (snapshot && typeof snapshot === 'object' && latest) applyState({ ...latest, notes: snapshot });
-      showLine(el.tasksMsg, snapshot?.connected ? '便签已启动并连接' : '便签启动中，正在等待连接…', snapshot?.connected ? 'ok' : undefined);
+      showLine(el.tasksMsg, snapshot?.connected ? '已打开本机便签，待办只读同步' : '已请求打开便签，等待本机数据…', snapshot?.connected ? 'ok' : undefined);
     } catch (err) {
-      showLine(el.tasksMsg, `启动便签失败：${err.message}`, 'error');
+      showLine(el.tasksMsg, `打开便签失败：${err.message}`, 'error');
     } finally {
       notesBusy.delete('open');
       applyState(latest);
@@ -619,9 +684,9 @@
     try {
       const next = await window.fish.action('connectNotes');
       applyState(next);
-      showLine(el.tasksMsg, next?.notes?.connected ? '已连接便签' : `连接未成功：${next?.notes?.error || '原因未知'}`, next?.notes?.connected ? 'ok' : 'error');
+      showLine(el.tasksMsg, next?.notes?.connected ? '已刷新本机待办' : `读取未成功：${next?.notes?.error || '原因未知'}`, next?.notes?.connected ? 'ok' : 'error');
     } catch (err) {
-      showLine(el.tasksMsg, `连接便签失败：${err.message}`, 'error');
+      showLine(el.tasksMsg, `读取便签失败：${err.message}`, 'error');
     } finally {
       notesBusy.delete('connect');
       applyState(latest);
@@ -742,7 +807,8 @@
     ['model', () => el.setModel],
     ['workMinutes', () => el.setWork],
     ['restMinutes', () => el.setRest],
-    ['noteProjectPath', () => el.setNoteProject],
+    // 双向源码配置暂存：['noteProjectPath', () => el.setNoteProject],
+    ['noteExePath', () => el.setNoteExe],
     ['noteDataDir', () => el.setNoteData],
   ];
 
@@ -776,6 +842,19 @@
     });
   }
 
+  el.selectNotesBtn.addEventListener('click', async () => {
+    el.selectNotesBtn.disabled = true;
+    try {
+      const next = await window.fish.action('selectNotesExecutable');
+      if (next?.canceled) return;
+      settingsDirty.delete('noteExePath');
+      applyState(next);
+      settingsNotice('已选择本机便签程序，待办保持只读同步。', 'ok');
+    } catch (err) {
+      settingsNotice(`选择便签失败：${err.message}`, 'error');
+    } finally { el.selectNotesBtn.disabled = false; }
+  });
+
   el.settingsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (savingSettings) return;
@@ -800,11 +879,12 @@
       if (parsed.error) invalid.push(parsed.error);
       else payload[key] = parsed.value;
     }
-    for (const [key, input, label] of [['noteProjectPath', el.setNoteProject, '便签项目路径'], ['noteDataDir', el.setNoteData, '便签数据目录']]) {
+    // 双向源码配置暂存：for (const [key, input, label] of [['noteProjectPath', el.setNoteProject, '便签项目路径'], ['noteDataDir', el.setNoteData, '便签数据目录']]) {
+    for (const [key, input, label] of [['noteExePath', el.setNoteExe, '便签程序'], ['noteDataDir', el.setNoteData, '便签数据目录']]) {
       if (!settingsDirty.has(key)) continue;
       if (input.value.trim() === String(current[key] ?? '')) continue;
       const v = input.value.trim();
-      if (!v) invalid.push(`${label}不能为空`);
+      if (!v && key === 'noteDataDir') invalid.push(`${label}不能为空`);
       else payload[key] = v;
     }
     const key = el.setApiKey.value.trim();

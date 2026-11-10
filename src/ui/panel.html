@@ -54,13 +54,14 @@
       <div class="section-head">
         <h2>待办</h2>
         <div class="head-actions">
-          <button id="btn-open-notes" type="button" class="btn small">启动便签</button>
-          <button id="btn-connect-notes" type="button" class="btn small">重新连接</button>
+          <button id="btn-open-notes" type="button" class="btn small">打开便签</button>
+          <button id="btn-connect-notes" type="button" class="btn small">刷新</button>
         </div>
       </div>
       <p id="notes-status" class="line-status" role="status"></p>
       <p id="tasks-msg" class="line-status" role="status" hidden></p>
 
+      <!-- 双向联动的新建表单暂存，当前只读，不启用。
       <form id="task-form" class="stack-form">
         <label for="task-text">新任务</label>
         <input id="task-text" type="text" placeholder="例如：整理下周会议纪要">
@@ -68,14 +69,18 @@
         <input id="task-remind" type="datetime-local">
         <button id="btn-create-task" type="submit" class="btn primary block">添加任务</button>
       </form>
+      -->
+      <p class="hint">任务从本机便签单向同步。点击未完成任务选择专注，编辑和提醒请在便签中设置。</p>
 
       <h3>未完成</h3>
       <ul id="todo-list" class="task-list"></ul>
       <p id="todo-empty" class="empty" hidden>没有未完成的任务。</p>
 
-      <h3>已完成</h3>
-      <ul id="done-list" class="task-list"></ul>
-      <p id="done-empty" class="empty" hidden>还没有完成的任务。</p>
+      <details class="completed-tasks">
+        <summary>已完成</summary>
+        <ul id="done-list" class="task-list"></ul>
+        <p id="done-empty" class="empty" hidden>还没有完成的任务。</p>
+      </details>
     </section>
 
     <section id="view-focus" class="scroll-view" role="tabpanel" aria-labelledby="tab-focus" hidden>
@@ -149,8 +154,16 @@
         </div>
 
         <h3>便签</h3>
+        <!-- 双向源码启动配置暂存，当前不启用。
         <label for="set-note-project">便签项目路径</label>
         <input id="set-note-project" type="text" spellcheck="false">
+        -->
+        <label for="set-note-exe">本机便签程序</label>
+        <div class="field-row">
+          <input id="set-note-exe" type="text" spellcheck="false" placeholder="自动查找桌面或开始菜单快捷方式">
+          <button id="btn-select-notes" type="button" class="btn">选择 EXE</button>
+        </div>
+        <p class="hint">打开已安装的便签，不运行源码、不写回便签数据。留空可重新自动查找。</p>
         <label for="set-note-data">便签数据目录</label>
         <input id="set-note-data" type="text" spellcheck="false">
         <button id="btn-save-settings" type="submit" class="btn primary block">保存设置</button>

@@ -4,19 +4,25 @@
 
 ## Electron外壳与业务服务
 
-`createAppService({dataDir,noteDataDir,onState,onChat,onPet,notify,encryptSecret,decryptSecret})` 从 `src/app-service.cjs` 导出；返回 `{init(), state(), handle(method,payload), close()}`。onState发送完整可公开状态；onChat发送聊天增量事件；onPet发送 `{type:'expression'|'bubble'|'motion',name?,text?}`。notify接收 `{title,body}`。
+`createAppService({dataDir,noteDataDir,desktopDir,readShortcutLink,openNoteExecutable,onState,onChat,onPet,notify,encryptSecret,decryptSecret})` 从 `src/app-service.cjs` 导出；返回 `{init(), state(), handle(method,payload), close()}`。onState发送完整可公开状态；onChat发送聊天增量事件；onPet发送 `{type:'expression'|'bubble'|'motion',name?,text?}`。notify接收 `{title,body}`。本机EXE通过注入的Electron `shell.readShortcutLink`及`shell.openPath`查找/打开。
 
 主进程IPC `fish:action` `(method,payload)` 白名单转交handle，窗口操作自己处理。preload暴露 `window.fish`：`action(method,payload)`、`onState(fn)`、`onChat(fn)`、`onPet(fn)`（订阅均返回取消函数）。IPC推送 `fish:state`/`fish:chat`/`fish:pet`。
 
-业务action：`getState`, `saveSettings`, `sendMessage`({text}), `clearChat`, `createTask`({text,remindAt?}), `updateTask`({id,patch}), `startFocus`({taskId?,text?,workMinutes?,restMinutes?}), `pauseFocus`, `resumeFocus`, `stopFocus`, `startRest`, `connectNotes`, `openNotes`。
+当前业务action：`getState`, `saveSettings`, `sendMessage`({text}), `clearChat`, `cancelChat`, `startFocus`({taskId?,text?,workMinutes?,restMinutes?}), `pauseFocus`, `resumeFocus`, `stopFocus`, `startRest`, `connectNotes`, `openNotes`。`createTask`、`updateTask`及聊天写入工具注释保留、不注册，调用按未知操作失败。
 
-窗口action由main负责：`showPanel`, `hidePanel`, `setMouseThrough`({enabled?,hovered?})（仅传hovered不更改用户开关，返回{enabled,mouseThrough,ignore}）, `movePet`({dx,dy}), `setPetScale`({scale:0.5..1.5}), `quit`, `selectModel`, `getShellInfo`。getShellInfo包含petScale、bubbleHeight、petBounds；比例存入shell-state，尺寸调整保留模型底部中心并限制在屏幕可用区域内。气泡预留128px独立区域，不占模型画布。服务saveSettings可接收 `{apiBaseUrl,model,apiKey,rememberKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}`。
+窗口action由main负责：`showPanel`, `hidePanel`, `setMouseThrough`({enabled?,hovered?})（仅传hovered不更改用户开关，返回{enabled,mouseThrough,ignore}）, `movePet`({dx,dy}), `setPetScale`({scale:0.5..1.5}), `quit`, `selectModel`, `selectNotesExecutable`, `getShellInfo`。getShellInfo包含petScale、bubbleHeight、petBounds；比例存入shell-state，尺寸调整保留模型底部中心并限制在屏幕可用区域内。气泡预留128px独立区域，不占模型画布。服务saveSettings可接收 `{apiBaseUrl,model,apiKey,rememberKey,workMinutes,restMinutes,noteExePath,noteDataDir}`。noteExePath留空可重新自动查找。
 
-公开state：`{settings:{apiBaseUrl,model,hasApiKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}, notes:{connected,error,revision,items:[]}, focus:{phase,paused,remainingMs,totalMs,taskId,text,completedToday,focusMinutesToday}, chat:{messages:[{role,content}],busy,error}}`。不返回原始Key。onChat事件 `{type:'start'|'delta'|'tool'|'done'|'error',text?,name?,result?,message?}`。`sendMessage`可等待完成，期间持续发事件。
+公开state：`{settings:{apiBaseUrl,model,hasApiKey,workMinutes,restMinutes,noteExePath,noteDataDir}, notes:{connected,error,revision,items:[]}, focus:{phase,paused,remainingMs,totalMs,taskId,text,completedToday,focusMinutesToday}, chat:{messages:[{role,content}],busy,error}}`。不返回原始Key。onChat事件 `{type:'start'|'delta'|'tool'|'done'|'error',text?,name?,result?,message?}`。`sendMessage`可等待完成，期间持续发事件。notes.connected只表示本机数据可读，不证明便签进程在线。
 
-## 便签接口
+## 当前便签只读接口
 
-确认关联目录为 `D:/project/便签`，remote `git@github.com:sanyingzhuoxiaoji/desktop_note.git`。数据目录允许 `DESKTOP_NOTE_DATA_DIR` 覆盖；`--background` 启动隐藏窗口。
+`LocalNoteReader({dataDir,onChange?,onReminder?})`读取并监听`sticky-note-data.json`，提供`connect()`、`snapshot()`、`close()`及`state`事件。默认目录为`%APPDATA%/desktop-sticky-note`，兼容旧安装版，不需要pet-bridge。每次有效变化推进本地revision，仅公开id/text/status/remindAt/reminded，不包含图片。保存中途JSON无效时保留最近有效快照并报错，下次保存恢复。只在已观察到的todo任务reminded由false变true时显示提醒，启动不重播。
+
+`resolveInstalledNoteExe({noteExePath,desktopDir,readShortcutLink,appData})`返回`{exe,source}`；有效手动EXE优先，其次本机快捷方式。不能回退到便签源码；不创建、修改或写回便签文件。
+
+### 旧双向桥接契约（保留，当前不启用）
+
+以下为关联源码`D:/project/便签`中保留的桥接协议，当前桌宠不加载。对应旧源码启动、配置、写入函数/工具/界面已注释保留，`note-client.cjs`未导入，不代表安装版已经有这些接口。
 
 便签主进程唯一权威TaskStore与落盘者，渲染端不再保存全量任务快照。`task-store.cjs` 导出 `TaskStore`：`new TaskStore({filePath})`，`snapshot()` 返回 `{revision,data}`，`create({text,remindAt?,note?,images?})` / `update(id,patch)` 返回 `{item,snapshot}`，任务变更保持其他字段。`data`沿用现有{version,title,themeColor,bgImage,collapsed,items}；保留历史所有item字段。可新增用于便签UI的其他方法，但不保留旧全量保存写接口。
 

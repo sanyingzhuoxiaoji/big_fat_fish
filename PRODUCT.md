@@ -18,15 +18,15 @@ Windows Electron桌面应用，界面以HTML/CSS呈现，不是网站。
 
 ## Product Purpose
 
-以大肥鱼桌宠统一聊天入口和待办/专注入口；聊天产生的任务必须真实保存到desktop_note，两边可见且可修改。
+以大肥鱼桌宠统一聊天、待办查看与专注入口；当前仅从本机安装的便签单向只读同步，任务编辑与提醒设置仍在便签中完成。
 
 ## Operating Context
 
-本地已提供大肥鱼Live2D资产，已有desktop_note（关联目录D:/project/便签）和Angelina_Pet可参考。用户提供临时GLM Key用于真实验证，完成后会撤销。要求持续推进、逐阶段验证、记录结果，并及时上传GitHub。
+本地已提供大肥鱼Live2D资产及已安装的桌面便签；联动参考Angelina_Pet，渲染和动作参考鲸语 https://github.com/InariNGT-Ofiicial/jingyu-live2d-agent 。不运行便签源码或修改安装版。用户要求持续推进、逐阶段验证，每阶段立即提交推送GitHub。
 
 ## Capabilities and Constraints
 
-API流式聊天；双向待办；聊天写任务和提醒时间；任务绑定番茄钟；本地到点提醒。便签唯一拥有待办数据和提醒调度。离线API错误不影响本地业务。不改系统/代理/OMP配置，不上传密钥/模型/运行数据，不伪造验证。UI细节由实现选择简单可维护方案。
+API流式聊天；便签→大肥鱼单向读取；任务绑定番茄钟；观察便签已提醒状态。本机便签唯一拥有任务写入和提醒调度。旧双向实现按用户要求注释保留、当前不启用。离线API错误不影响本地业务。不改系统/代理/OMP配置，不上传密钥/模型/运行数据，不伪造验证。UI细节由实现选择简单可维护方案。
 
 ## Brand Commitments
 

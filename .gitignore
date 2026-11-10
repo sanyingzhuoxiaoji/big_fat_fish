@@ -1,0 +1,10 @@
+node_modules/
+.local/
+.env
+.env.*
+!.env.example
+DeepSeek免费公皮/
+vendor/live2dcubismcore.min.js
+*.log
+dist/
+coverage/

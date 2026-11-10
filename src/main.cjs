@@ -7,16 +7,15 @@ const {
   protocol, Notification, safeStorage, shell,
 } = require('electron');
 
+const { petWindowBounds, BUBBLE_HEIGHT } = require('./window-layout.cjs');
 const ROOT = path.resolve(__dirname, '..');
 const LOCAL = path.join(ROOT, '.local');
-const PET_WIDTH = 380;
-const PET_HEIGHT = 500;
 const PANEL_WIDTH = 390;
 const PANEL_HEIGHT = 650;
 const DEFAULT_MODEL = path.join(ROOT, 'DeepSeek免费公皮', 'DeepSeek', '大肥鱼.model3.json');
 const SCHEME = 'fish';
 const SHELL_STATE_FILE = path.join(LOCAL, 'userData', 'shell-state.json');
-const WINDOW_ACTIONS = new Set(['showPanel', 'hidePanel', 'setMouseThrough', 'movePet', 'quit', 'selectModel', 'getShellInfo']);
+const WINDOW_ACTIONS = new Set(['showPanel', 'hidePanel', 'setMouseThrough', 'movePet', 'setPetScale', 'quit', 'selectModel', 'getShellInfo']);
 
 protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
@@ -49,6 +48,7 @@ let quitting = false;
 let mouseThrough = true;   // 主开关：托盘控制；true = 透明区域放行鼠标
 let hovered = false;       // 渲染端上报：光标是否悬停在鱼身上
 let mouseDragging = false;
+let petScale = 1;
 let modelPath = DEFAULT_MODEL;
 let shellState = {};
 let persistTimer = null;
@@ -60,6 +60,7 @@ function readShellState() {
     const state = JSON.parse(fs.readFileSync(SHELL_STATE_FILE, 'utf8'));
     if (typeof state.modelPath === 'string' && state.modelPath.trim()) modelPath = path.resolve(state.modelPath);
     if (typeof state.mouseThrough === 'boolean') mouseThrough = state.mouseThrough;
+    if (Number.isFinite(state.petScale) && state.petScale >= 0.5 && state.petScale <= 1.5) petScale = state.petScale;
     return state;
   } catch {
     return {};
@@ -68,7 +69,7 @@ function readShellState() {
 
 function writeShellState() {
   const bounds = petWindow && !petWindow.isDestroyed() ? petWindow.getBounds() : null;
-  const state = { ...shellState, modelPath, mouseThrough, petBounds: bounds };
+  const state = { ...shellState, modelPath, mouseThrough, petScale, petBounds: bounds };
   try {
     fs.mkdirSync(path.dirname(SHELL_STATE_FILE), { recursive: true });
     const temp = `${SHELL_STATE_FILE}.tmp`;
@@ -203,14 +204,8 @@ async function handleProtocol(request) {
 }
 
 function clampPetBounds(x, y) {
-  const display = screen.getDisplayNearestPoint({ x, y });
-  const area = display.workArea;
-  return {
-    x: Math.round(Math.max(area.x - PET_WIDTH + 60, Math.min(x, area.x + area.width - 60))),
-    y: Math.round(Math.max(area.y, Math.min(y, area.y + area.height - 60))),
-    width: PET_WIDTH,
-    height: PET_HEIGHT,
-  };
+  const workArea = screen.getDisplayNearestPoint({ x, y }).workArea;
+  return petWindowBounds({ x, y, scale: petScale, workArea });
 }
 
 function applyMousePolicy() {
@@ -303,6 +298,20 @@ async function handleWindowAction(method, payload = {}) {
       applyMousePolicy();
       return { enabled: mouseThrough, mouseThrough, ignore: mouseThrough && !hovered && !mouseDragging };
     }
+    case 'setPetScale': {
+      const scale = payload.scale;
+      if (typeof scale !== 'number' || !Number.isFinite(scale) || scale < 0.5 || scale > 1.5) {
+        throw new TypeError('模型大小应在 50% 到 150% 之间');
+      }
+      petScale = scale;
+      if (petWindow && !petWindow.isDestroyed()) {
+        const previous = petWindow.getBounds();
+        const workArea = screen.getDisplayMatching(previous).workArea;
+        petWindow.setBounds(petWindowBounds({ scale, workArea, previous }));
+      }
+      schedulePersist();
+      return { scale: petScale };
+    }
     case 'movePet': {
       if (!petWindow || petWindow.isDestroyed()) return { moved: false };
       const dx = Number(payload.dx);
@@ -331,6 +340,8 @@ async function handleWindowAction(method, payload = {}) {
       modelPath,
       modelExists: fs.existsSync(modelPath),
       mouseThrough,
+      petScale,
+      bubbleHeight: BUBBLE_HEIGHT,
       files: getModelFiles(),
       petBounds: petWindow && !petWindow.isDestroyed() ? petWindow.getBounds() : null,
       panelVisible: !!(panelWindow && !panelWindow.isDestroyed() && panelWindow.isVisible()),
@@ -353,20 +364,17 @@ function createPanelWindow() {
 }
 
 function createPetWindow(savedBounds) {
+  const previous = savedBounds && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(savedBounds[key])) ? savedBounds : undefined;
+  const workArea = previous ? screen.getDisplayMatching(previous).workArea : screen.getPrimaryDisplay().workArea;
+  const bounds = petWindowBounds({ scale: petScale, workArea, previous });
   petWindow = new BrowserWindow({
-    width: PET_WIDTH, height: PET_HEIGHT, frame: false, transparent: true,
+    ...bounds, frame: false, transparent: true,
     resizable: false, skipTaskbar: true, show: true, hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   petWindow.setAlwaysOnTop(true, 'screen-saver');
   addTrustedWindow(petWindow);
-  if (savedBounds && Number.isFinite(savedBounds.x) && Number.isFinite(savedBounds.y)) {
-    petWindow.setBounds(clampPetBounds(savedBounds.x, savedBounds.y));
-  } else {
-    const { workArea } = screen.getPrimaryDisplay();
-    petWindow.setBounds(clampPetBounds(workArea.x + workArea.width - PET_WIDTH - 24, workArea.y + workArea.height - PET_HEIGHT - 24));
-  }
   petWindow.setIgnoreMouseEvents(true, { forward: true });
   petWindow.loadURL('fish://app/pet.html');
   petWindow.on('move', schedulePersist);

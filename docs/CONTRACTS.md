@@ -10,7 +10,7 @@
 
 业务action：`getState`, `saveSettings`, `sendMessage`({text}), `clearChat`, `createTask`({text,remindAt?}), `updateTask`({id,patch}), `startFocus`({taskId?,text?,workMinutes?,restMinutes?}), `pauseFocus`, `resumeFocus`, `stopFocus`, `startRest`, `connectNotes`, `openNotes`。
 
-窗口action由main负责：`showPanel`, `hidePanel`, `setMouseThrough`({enabled?,hovered?})（仅传hovered不更改用户开关，返回{enabled,mouseThrough,ignore}）, `movePet`({dx,dy}), `quit`, `selectModel`, `getShellInfo`。服务saveSettings可接收 `{apiBaseUrl,model,apiKey,rememberKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}`。
+窗口action由main负责：`showPanel`, `hidePanel`, `setMouseThrough`({enabled?,hovered?})（仅传hovered不更改用户开关，返回{enabled,mouseThrough,ignore}）, `movePet`({dx,dy}), `setPetScale`({scale:0.5..1.5}), `quit`, `selectModel`, `getShellInfo`。getShellInfo包含petScale、bubbleHeight、petBounds；比例存入shell-state，尺寸调整保留模型底部中心并限制在屏幕可用区域内。气泡预留128px独立区域，不占模型画布。服务saveSettings可接收 `{apiBaseUrl,model,apiKey,rememberKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}`。
 
 公开state：`{settings:{apiBaseUrl,model,hasApiKey,workMinutes,restMinutes,noteProjectPath,noteDataDir}, notes:{connected,error,revision,items:[]}, focus:{phase,paused,remainingMs,totalMs,taskId,text,completedToday,focusMinutesToday}, chat:{messages:[{role,content}],busy,error}}`。不返回原始Key。onChat事件 `{type:'start'|'delta'|'tool'|'done'|'error',text?,name?,result?,message?}`。`sendMessage`可等待完成，期间持续发事件。
 

@@ -411,6 +411,9 @@ label {
   color: var(--text-2);
 }
 
+#set-pet-scale { flex: 1; min-width: 0; padding: 0; border: 0; accent-color: var(--accent); }
+#pet-scale-value { margin-left: 8px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
 @media (max-width: 380px) {
   .focus-time { font-size: 36px; }
   .msg { max-width: 94%; }

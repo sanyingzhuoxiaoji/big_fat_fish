@@ -29,6 +29,7 @@
     clearKeyBtn: $('#btn-clear-key'), setWork: $('#set-work'), setRest: $('#set-rest'),
     setNoteProject: $('#set-note-project'), setNoteData: $('#set-note-data'),
     mouseBtn: $('#btn-mouse-through'), mouseState: $('#mouse-state'),
+    petScale: $('#set-pet-scale'), petScaleValue: $('#pet-scale-value'), resetPetScale: $('#btn-reset-pet-scale'),
     tabs: [...document.querySelectorAll('[role="tab"]')],
     views: { chat: $('#view-chat'), tasks: $('#view-tasks'), focus: $('#view-focus'), settings: $('#view-settings') },
   };
@@ -45,6 +46,7 @@
   let keyBusy = false;
 
   let mouseThrough = false;
+  let scaleFrame = 0;
 
   const notesBusy = new Set();      // 'open' | 'connect'
   let itemsSig = '';
@@ -866,14 +868,37 @@
     el.mouseState.textContent = `鼠标穿透：${mouseThrough ? '已开启' : '关闭'}`;
   }
 
-  async function syncMouseUI() {
+  function showPetScale(scale) {
+    const percent = `${Math.round(scale * 100)}%`;
+    el.petScale.value = String(scale);
+    el.petScaleValue.value = percent;
+    el.petScale.setAttribute('aria-valuetext', percent);
+  }
+
+  function changePetScale() {
+    const scale = Number(el.petScale.value);
+    showPetScale(scale);
+    window.fish.action('setPetScale', { scale }).catch(err => settingsNotice(`调整模型大小失败：${err.message}`, 'error'));
+  }
+
+  el.petScale.addEventListener('input', () => {
+    cancelAnimationFrame(scaleFrame);
+    scaleFrame = requestAnimationFrame(changePetScale);
+  });
+  el.resetPetScale.addEventListener('click', () => {
+    el.petScale.value = '1';
+    changePetScale();
+  });
+
+  async function syncShellUI() {
     const shell = await window.fish.action('getShellInfo');
     mouseThrough = shell.mouseThrough;
     updateMouseUI();
+    if (document.activeElement !== el.petScale) showPetScale(shell.petScale);
   }
 
   window.addEventListener('focus', () => {
-    syncMouseUI().catch(err => settingsNotice(`读取鼠标穿透状态失败：${err.message}`, 'error'));
+    syncShellUI().catch(err => settingsNotice(`读取桌宠设置失败：${err.message}`, 'error'));
   });
 
   el.mouseBtn.addEventListener('click', async () => {
@@ -910,7 +935,7 @@
       tab.tabIndex = active ? 0 : -1;
     }
     if (name === 'chat') scrollChat(true);
-    if (name === 'settings') syncMouseUI().catch(err => settingsNotice(`读取鼠标穿透状态失败：${err.message}`, 'error'));
+    if (name === 'settings') syncShellUI().catch(err => settingsNotice(`读取桌宠设置失败：${err.message}`, 'error'));
   }
   for (const tab of el.tabs) {
     tab.addEventListener('click', () => selectView(tab.getAttribute('aria-controls').replace('view-', '')));
@@ -930,7 +955,7 @@
     el.bootError.textContent = '';
     el.bootRetry.hidden = true;
     try {
-      const [state] = await Promise.all([window.fish.action('getState'), syncMouseUI()]);
+      const [state] = await Promise.all([window.fish.action('getState'), syncShellUI()]);
       applyState(state);
     } catch (err) {
       el.bootError.textContent = `无法读取大肥鱼状态：${err.message}`;

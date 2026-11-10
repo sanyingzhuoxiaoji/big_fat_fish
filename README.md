@@ -20,6 +20,11 @@ npm start
 
 鼻部黑块的颜色处理对照了[鲸语的逐画元乘算色/屏幕色修复](https://github.com/InariNGT-Ofiicial/jingyu-live2d-agent/blob/main/patch_renderer.py)。本项目由新框架处理这些颜色与遮罩，不修改模型、贴图或画元。不要把旧的 `sdk-web/cubismcore/` Core 与新框架混用。
 
+## 模型大小与气泡
+
+设置中的“模型大小”支持50%–150%即时调整，自动适配屏幕可用区域；“恢复默认”回到100%，比例重启后保留。气泡固定在模型上方的独立区域，长消息在气泡内滚动，不覆盖模型。
+
+
 
 ## 聊天
 

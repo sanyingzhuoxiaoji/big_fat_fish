@@ -111,8 +111,9 @@
   function pointerInModel(event) {
     const rect = modelRect();
     if (!rect) return false;
-    const x = event.clientX;
-    const y = event.clientY;
+    const stage = stageEl.getBoundingClientRect();
+    const x = event.clientX - stage.left;
+    const y = event.clientY - stage.top;
     return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
   }
 
@@ -138,7 +139,7 @@
       window.fish.action('movePet', { dx, dy }).catch(() => {});
       return;
     }
-    setHovered(pointerInModel(event));
+    setHovered(pointerInModel(event) || (!bubbleEl.hidden && bubbleEl.contains(event.target)) || Boolean(event.target.closest?.('button')));
   }
 
   function onPointerDown(event) {

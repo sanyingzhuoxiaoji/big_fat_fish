@@ -45,6 +45,9 @@
 
 `src/services/chat.cjs` 导出 `ChatService`：`new ChatService({filePath,fetchImpl?,now?})`；`messages()`返回仅可展示的user/assistant记录；`clear()`；`send({text,config:{apiBaseUrl,model,apiKey,thinking?,reasoningEffort?},tools,executeTool,onEvent,signal?})`返回最终assistant内容。tools为OpenAI function schema，executeTool(name,args)为异步真实业务执行。SSE流收集content与按index分片的tool_calls，工具回执进入下一轮messages；工具失败返回真实错误，不能伪造成功。GLM 5.3系列自动启用thinking及reasoning_effort:low，工具回合保留原始reasoning_content但不展示；其他模型沿用关闭thinking，thinking:false可省略该字段。会话持久化不保存Key。支持取消，不自动重试任务写入。不得读取环境里的其他凭据。官方文档：https://docs.bigmodel.cn/cn/guide/capabilities/function-calling.md 、https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode.md 。
 
+`src/services/persona.cjs`导出静态`PERSONA_PROMPT`，包含一对一小鲸鱼身份、外貌背景、语气和示例，无外部TXT运行依赖。`buildSystemPrompt(now,model)`合并人设、实际所选模型名、本地时钟和更高优先级的能力规则；`send`调用时传入同一个`config.model`。只读任务、真实回执、无越权操作及受限pet_react优先于角色设定；不声称具备未实现的QQ/联网/长期记忆能力。
+
+
 ## 番茄钟模块
 
 `src/services/pomodoro.cjs` 导出 `Pomodoro`：`new Pomodoro({filePath,now?,onChange?,onComplete?,autoTick?})`，autoTick默认true；方法 `start({taskId?,text?,workMinutes?,restMinutes?})`, `pause()`, `resume()`, `stop()`, `startRest()`, `tick()`, `snapshot()`, `close()`。

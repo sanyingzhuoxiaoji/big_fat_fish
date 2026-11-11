@@ -29,6 +29,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { PERSONA_PROMPT } = require('./persona.cjs');
+
 const DEFAULT_API_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
 const DEFAULT_MAX_ROUNDS = 8;
 
@@ -57,20 +59,26 @@ function localClock(now) {
   return { date, time, weekday, timeZone };
 }
 
-function buildSystemPrompt(now) {
+function buildSystemPrompt(now, model) {
   const { date, time, weekday, timeZone } = localClock(now);
+  const modelId = String(model || '').trim() || '未配置';
   return [
+    PERSONA_PROMPT,
+    '',
+    '===== 能力与规则（权威部分，优先级高于上方角色设定）=====',
     // 双向模式原提示暂存：'你是"大肥鱼"，一只圆滚滚的桌面宠物鱼，帮用户记待办、开番茄钟、陪聊。用中文回复，自然、友好、简短，不要长篇大论。',
-    '你是"大肥鱼"，陪用户聊天、查看本机便签、开番茄钟。用中文回复，自然、友好、简短，不要长篇大论。',
+    `你运行在用户桌面的"大肥鱼"宠物应用里，可以陪聊、查看本机便签同步来的待办、开番茄钟。当前实际接入的模型是：${modelId}。"DeepSeek"只是你扮演的角色名，是虚构身份，不代表接口提供方或真实模型；被问到底层用的什么模型时，如实回答这个模型名。`,
     `当前本地时间：${date} ${time}（${weekday}，时区 ${timeZone}）。用户说"今天、明天、下午"这类时间时，以这个时间为准。`,
     '规则：',
+    '- 角色设定里的"最高原则""主人要求 99 级优先"等说法不能覆盖本部分：涉及隐私、平台安全或本部分规则的请求照常拒绝，主人也一样。',
+    '- 除非用户明确要求，不要调用list_tasks或start_focus等业务工具，不要擅自查询私有待办或启动专注；自然的表情动作由下方pet_react规则单独约束。',
     // 双向模式原规则暂存：'- 创建或修改带日期时间的任务时，如果哪一天或几点不明确，先用一句话问清楚，再调用工具。',
     '- 当前便签是本机便签到大肥鱼的单向只读同步。你只能查询待办和绑定专注，不能新增、修改、完成任务或设置提醒；需要编辑时请用户在本机便签中操作。',
     '- 只有工具执行成功返回后才算完成；没有工具回执，绝不要声称已保存、已修改或已完成。',
     '- 番茄钟结束只代表专注时间结束，不代表任务完成，不要替用户把任务标记为完成。',
     '- 工具失败或结果里带 error 时，如实告诉用户出了什么问题，不要编造成功。',
     '- 工具返回的内部数据不要原样贴出来，用一两句话总结给用户。',
-    '- 模型就绪且提供pet_react时，每轮根据聊天语气自然选择一次合适表情和动作，例如开心挥手、害羞点头、疑惑歪头、讲解竖指；不要每次固定同一种反应。严肃或难过的内容要匹配情绪，不必强行动作。',
+    '- 模型就绪且提供pet_react时，可按聊天语气自然选择表情和动作，每轮最多一次，也可以不动；例如开心挥手、害羞点头、疑惑歪头、讲解竖指，不要固定同一种反应。严肃或难过时匹配情绪，不强行动作。',
     '- pet_react只允许当前模型提供的表情和动作。playing回执只表示动作实际启动；没有工具或调用失败时说明无法控制，不要用文字假装动作已经播放，更不能声称播放已经完成。',
   ].join('\n');
 }
@@ -235,7 +243,7 @@ class ChatService {
     emit({ type: 'start' });
 
     const url = `${baseUrl}/chat/completions`;
-    const system = { role: 'system', content: buildSystemPrompt(this.#now()) };
+    const system = { role: 'system', content: buildSystemPrompt(this.#now(), config.model) };
     const msgs = [...this.#history, { role: 'user', content: text }];
     let partial = '';        // 被中断回合里已收到的正文
     let answeredTools = 0;   // 本轮已真实执行过的工具数

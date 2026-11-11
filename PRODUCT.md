@@ -20,6 +20,8 @@ Windows Electron桌面应用，界面以HTML/CSS呈现，不是网站。
 
 以大肥鱼桌宠统一聊天、待办查看与专注入口；当前仅从本机安装的便签单向只读同步，任务编辑与提醒设置仍在便签中完成。
 
+聊天人格由用户提供的小鲸鱼角色卡适配：短句、真诚、轻度傲娇，白饭/token梗作为调味；角色名与底层API模型身份分开，口吻不覆盖真实能力和权限。
+
 ## Operating Context
 
 本地已提供大肥鱼Live2D资产及已安装的桌面便签；联动参考Angelina_Pet，渲染和动作参考鲸语 https://github.com/InariNGT-Ofiicial/jingyu-live2d-agent 。不运行便签源码或修改安装版。用户要求持续推进、逐阶段验证，每阶段立即提交推送GitHub。
